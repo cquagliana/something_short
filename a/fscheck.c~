@@ -6,22 +6,203 @@
 #include <fcntl.h>
 #include "fs.h"
 
-// Disk layout is: superblock, inodes, block in-use bitmap, data blocks.
-// Bitmap bits per block: BPB = BSIZE * 8 = 512 * 8
-
-// bitmap format - need base and offset
-// 0   [ base | 1 | 2 | 3 | 4 .... | 7] 
-// 1   [ base | 1 | 2 | 3 | 4 .... | 7] 
-// 2   [ base | 1 | 2 | 3 | 4 .... | 7] 
-// ... 
-// BPB [ base | 1 | 2 | 3 | 4 .... | 7] 
-
+int image;
 int numInodeBlocks;
 int imageSize;
-int numBlocks;
+int numDataBlocks;
 int numInodes;
+int dataBitmapAddr;
+int beginDataBlocksAddr;
 struct superblock* sb;
-char dataBitmap[BSIZE / sizeof(char)];
+struct dinode** inodes;
+char dataBitmap[BSIZE];
+char currBlock[BSIZE];
+int *addressHashSet;
+
+///////////////////////
+//// misc. helpers //// 
+///////////////////////
+
+int isAllocated(int blockAddr) {
+        int base = blockAddr % BPB;
+        int bitSelect = 1 << (base % 8);
+        int out = dataBitmap[base / 8] & bitSelect;
+        return !(out == 0);   
+}
+
+struct dinode* getInode(int i) {
+	if(i >= 0 && i < numInodes) {
+		return inodes[i];
+	}
+	return NULL;
+}
+
+// gets the addr-th block and puts it into currBlock 
+void aquireBlock(int addr) {
+    lseek(image, addr * BSIZE, SEEK_SET);
+    read(image, currBlock, BSIZE);
+}
+
+////////////////////////////
+//// file system checks //// 
+////////////////////////////
+
+void badAddressInInode() {
+	int i, j, addr;
+	struct dinode* inode;
+	
+	for(i = 0; i < numInodes; i++) {	
+	       	inode = getInode(i);
+	
+		// check direct blocks
+		for(j = 0; i < NDIRECT; i++) {	
+			addr = inode->addrs[j];
+			if(addr == 0)
+				continue;
+
+			if(addr < beginDataBlocksAddr || addr >= imageSize) {
+				printf("bad address in inode\n");
+				exit(1);
+			}
+        	}  
+        	
+        	// check indirect blocks
+		addr = inode->addrs[NDIRECT];
+		if(addr == 0)
+			continue;
+		
+		int numBlocksForFile = (inode->size) / BSIZE;
+		int indirectBase = addr;
+		int indirectEnd = indirectBase + numBlocksForFile - NDIRECT;
+		
+		if(indirectBase < beginDataBlocksAddr || indirectBase >= imageSize) {
+			printf("bad address in inode\n");
+			exit(1);
+		}	
+		if(indirectEnd < beginDataBlocksAddr || indirectEnd >= imageSize) {
+			printf("bad address in inode\n");
+			exit(1);
+		}
+	}
+}
+
+void addressUsedByInodeButMarkedFreeInBitmap() {
+	int i, j, k, addr;
+	struct dinode* inode;
+	
+	for(i = 0; i < numInodes; i++) {	
+	       	inode = getInode(i);
+	
+		// check direct blocks
+		for(j = 0; i < NDIRECT; i++) {	
+			addr = inode->addrs[j];
+			if(addr == 0)
+				continue;
+
+			if(!isAllocated(addr)) {
+				printf("address used by inode but marked free in bitmap\n");
+				exit(1);
+			}
+        	}  
+        	
+        	// check indirect blocks
+		addr = inode->addrs[NDIRECT];
+		if(addr == 0)
+			continue;
+		
+		int numBlocksForFile = (inode->size) / BSIZE;
+		int indirectBase = addr;
+		int indirectEnd = indirectBase + numBlocksForFile - NDIRECT;
+		
+		for(k = indirectBase; k <= indirectEnd; k++) {
+			if(!isAllocated(k)) {
+				printf("address used by inode but marked free in bitmap\n");
+				exit(1);
+			}
+		}
+	}
+}
+
+void addressUsedMoreThanOnce() {
+	int i, j, k, addr;
+	struct dinode* inode;
+	
+	for(i = 0; i < numInodes; i++) {	
+	       	inode = getInode(i);
+	
+		// check direct blocks
+		for(j = 0; i < NDIRECT; i++) {	
+			addr = inode->addrs[j];
+			if(addr == 0)
+				continue;
+
+			if(addressHashSet[addr] != 0) {
+				printf("address used more than once\n");
+				exit(1);
+			}
+			addressHashSet[addr] = 1;
+        	}  
+        	
+        	// check indirect blocks
+		addr = inode->addrs[NDIRECT];
+		if(addr == 0)
+			continue;
+		
+		int numBlocksForFile = (inode->size) / BSIZE;
+		int indirectBase = addr;
+		int indirectEnd = indirectBase + numBlocksForFile - NDIRECT;
+		
+		for(k = indirectBase; k <= indirectEnd; k++) {
+			if(addressHashSet[k] != 0) {
+				printf("address used more than once\n");
+				exit(1);
+			}
+			addressHashSet[k] = 1;
+		}
+	}
+}
+
+///////////////////
+//// debugging //// 
+///////////////////
+
+void printBitMap() {
+	int i;
+	for(i = 0; i < numDataBlocks; i++) {	
+       	        printf("bitmap index %d with entry %d\n", i, isAllocated(i));
+        }   
+}
+
+void printInodes() {
+	int i;
+        for(i = 0; i < numInodes; i++) {
+        	struct dinode* inode = getInode(i);
+        	
+        	int sz = (inode->size) / BSIZE;
+        	if( ((inode->size) % BSIZE) != 0)
+        		sz++;
+        	
+       	        printf("inode=%d size=%d blocks=%d | ", i, inode->size, sz);
+       	        
+       	        int j;
+       	        for(j = 0; j < NDIRECT; j++) {
+       	       		printf("%d ", inode->addrs[j]);
+       	        }
+       	        
+       	        if(inode->addrs[NDIRECT] != 0) {
+       	        	int base = inode->addrs[NDIRECT];
+       	        	base += sz;
+       	        	base -= NDIRECT;
+       	        	printf(" | ind_start=%d ind_end=%d", inode->addrs[NDIRECT], base);
+       	        }
+       	        
+       	        printf("\n\n");
+        }   
+}
+
+/////////////////////
+//// end helpers ////
+/////////////////////
 
 int main(int argc, char *argv[]) {
 	int i;
@@ -30,7 +211,7 @@ int main(int argc, char *argv[]) {
 		printf("Usage: fscheck <file system image>\n");
 	}
 	
-	int image = open(argv[1], O_RDONLY);
+	image = open(argv[1], O_RDONLY);
 	if(image < 0) {
   		fprintf(stderr, "image not found\n");
 	}
@@ -40,11 +221,11 @@ int main(int argc, char *argv[]) {
 	lseek(image, BSIZE, SEEK_SET); // superblock locaiton
         read(image, sb, sizeof(struct superblock));
 	imageSize = sb->size;
-	numBlocks = sb->nblocks;
+	numDataBlocks = sb->nblocks;
 	numInodes = sb->ninodes;
         
         // get inodes
-        struct dinode** inodes = malloc(sizeof(struct dinode*) * numInodes);
+        inodes = malloc(sizeof(struct dinode*) * numInodes);
         lseek(image, 2 * BSIZE, SEEK_SET); // inodes locaiton
         for(i = 0; i < numInodes; i++) {
         	inodes[i] = malloc(sizeof(struct dinode));
@@ -52,28 +233,26 @@ int main(int argc, char *argv[]) {
         }
         
         // get data bitmap
-        numInodeBlocks = (int) (numInodes * sizeof(struct dinode)) / BSIZE;
-        lseek(image, BSIZE * (3 + numInodeBlocks), SEEK_SET); // data bitmap location
+        numInodeBlocks = 1 + (int) (numInodes * sizeof(struct dinode)) / BSIZE;
+        dataBitmapAddr = 2 + numInodeBlocks;
+        beginDataBlocksAddr = 3 + numInodeBlocks;     
+        lseek(image, BSIZE * (dataBitmapAddr), SEEK_SET); // data bitmap location
         read(image, dataBitmap, BSIZE);
-           
-        for(i = 0; i < numInodes; i++) {
-        	struct dinode* inode = inodes[i];
-       	        printf("inode %d with type of %d\n", i, inode->type);
-        }
         
-        for(i = 0; i < BSIZE / sizeof(char); i++) {        
-        	int base = i % BPB;
-        	int bitSelect = 1 << (base % 8);
-        	int out = dataBitmap[base / 8] & bitSelect;
-        	int free = (out == 0);
-        
-       	        printf("bitmap index %d with entry %d\n", i, free);
-        }
-        
-                printf("num blocks %d\n", numInodeBlocks);
-        
-
-
+        // setup helpers
+        addressHashSet = malloc(sizeof(short) * imageSize);
+        for(i = 0; i < imageSize; i++)
+        	addressHashSet[i] = 0;
+              	    	
+     	// debug
+    	//printBitMap();             
+    	//printInodes(); 
+    	
+    	// run the file system check functions
+    	badAddressInInode();
+    	addressUsedByInodeButMarkedFreeInBitmap();
+    	addressUsedMoreThanOnce();
 
 	return 0;
 }
+
