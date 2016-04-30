@@ -71,9 +71,9 @@ void badAddressInInode() {
 				printf("bad address in inode\n");
 				exit(1);
 			}
-        	}  
+        }  
         	
-        	// check indirect blocks
+        // check indirect blocks
 		addr = inode->addrs[NDIRECT];
 		if(addr == 0)
 			continue;
@@ -110,9 +110,9 @@ void addressUsedByInodeButMarkedFreeInBitmap() {
 				printf("address used by inode but marked free in bitmap\n");
 				exit(1);
 			}
-        	}  
+        }  
         	
-        	// check indirect blocks
+        // check indirect blocks
 		addr = inode->addrs[NDIRECT];
 		if(addr == 0)
 			continue;
@@ -148,9 +148,9 @@ void addressUsedMoreThanOnce() {
 				exit(1);
 			}
 			addressHashSet[addr] = 1;
-        	}  
+        }  
         	
-        	// check indirect blocks
+        // check indirect blocks
 		addr = inode->addrs[NDIRECT];
 		if(addr == 0)
 			continue;
@@ -215,11 +215,129 @@ void rootDirectoryDoesNotExist() {
 	free(dir);
 }
 
-void badInode(){
-	//struct dinode* root = getInode(1);
+void directoryNotProperlyFormatted(int inodeNumber, int level) {
+	int blockIndex, i;
+	int foundDot = 0;
+	int foundDotDot = 0;
+	struct dinode* inode = getInode(inodeNumber);
+	struct dirent* dir = malloc(sizeof(struct dirent));		
+		
+	// direct blocks
+	for(i = 0; i < NDIRECT; i++) {
+		if(inode->addrs[i] == 0) {
+			continue;
+		}
+				
+		// get the block containing the data at index i  
+		blockIndex = inode->addrs[i];
+		int totalRead = 0;
+	
+		while(1) {
+			if(totalRead + sizeof(struct dirent) > BSIZE) {	
+				break;
+			}	
+		
+			lseek(image, BSIZE * blockIndex + totalRead, SEEK_SET);
+			read(image, dir, sizeof(struct dirent));	
+			totalRead += sizeof(struct dirent); 
+			
+			if(dir->name[0] == 0) {
+				break;
+			}
+			
+			int dirInode = dir->inum;
+			struct dinode* subinode = getInode(dirInode);
+			if(subinode->type != T_DIR) {
+				continue;
+			}
+			
+			/*
+			int j;
+			for(j = 0; j < level; j++) 
+				printf("\t");		
+			printf("item %d name: ", dirInode);
+			
+			for(j = 0; j < DIRSIZ; j++) {
+				printf("%c",dir->name[j]);
+			}	
+			printf("\n");
+			*/
+				
+			if(dir->name[0] == '.' && dir->name[1] == '\0') {
+				foundDot = 1;
+				continue;
+			}
+			if(dir->name[0] == '.' && dir->name[1] == '.' && dir->name[2] == '\0') {
+				foundDotDot = 1;
+				continue;
+			}			
+			
+			directoryNotProperlyFormatted(dirInode, level + 1);
+		}
+	}
+	
+	// indirect blocks
+	blockIndex = inode->addrs[NDIRECT];
+	if(blockIndex != 0) {
+		int numBlocksForFile = (inode->size) / BSIZE;
+		int indirectBase = blockIndex;
+		int indirectEnd = indirectBase + numBlocksForFile - NDIRECT;
+		
+		for(blockIndex = indirectBase; blockIndex <= indirectEnd; blockIndex++) {
+			int totalRead = 0;
+	
+			while(1) {
+				if(totalRead + sizeof(struct dirent) > BSIZE) {	
+					break;
+				}	
+			
+				lseek(image, BSIZE * blockIndex + totalRead, SEEK_SET);
+				read(image, dir, sizeof(struct dirent));	
+				totalRead += sizeof(struct dirent); 
+				
+				if(dir->name[0] == 0) {
+					break;
+				}
+				
+				int dirInode = dir->inum;
+				struct dinode* subinode = getInode(dirInode);
+				if(subinode->type != T_DIR) {
+					continue;
+				}
+				
+				/*
+				int j;
+				for(j = 0; j < level; j++) 
+					printf("\t");		
+				printf("item %d name: ", dirInode);
+				
+				for(j = 0; j < DIRSIZ; j++) {
+					printf("%c",dir->name[j]);
+				}	
+				printf("\n");
+				*/
+					
+				if(dir->name[0] == '.' && dir->name[1] == '\0') {
+					foundDot = 1;
+					continue;
+				}
+				if(dir->name[0] == '.' && dir->name[1] == '.' && dir->name[2] == '\0') {
+					foundDotDot = 1;
+					continue;
+				}			
+				
+				directoryNotProperlyFormatted(dirInode, level + 1);
+			}
+		}
+	}
+	
+	if(!foundDot || !foundDotDot) {
+		printf("directory not properly formatted\n");
+		exit(1);
+	}
+		
+	free(dir);
 }
-
-
 
 ///////////////////
 //// debugging //// 
@@ -283,35 +401,36 @@ int main(int argc, char *argv[]) {
 	numDataBlocks = sb->nblocks;
 	numInodes = sb->ninodes;
         
-        // get inodes
-        inodes = malloc(sizeof(struct dinode*) * numInodes);
-        lseek(image, 2 * BSIZE, SEEK_SET); // inodes locaiton
-        for(i = 0; i < numInodes; i++) {
-        	inodes[i] = malloc(sizeof(struct dinode));
-       	        read(image, inodes[i], sizeof(struct dinode));
-        }
-        
-        // get data bitmap
-        numInodeBlocks = 1 + (int) (numInodes * sizeof(struct dinode)) / BSIZE;
-        dataBitmapAddr = 2 + numInodeBlocks;
-        beginDataBlocksAddr = 3 + numInodeBlocks;     
-        lseek(image, BSIZE * (dataBitmapAddr), SEEK_SET); // data bitmap location
-        read(image, dataBitmap, BSIZE);
-        
-        // setup helpers
-        addressHashSet = malloc(sizeof(short) * imageSize);
-        for(i = 0; i < imageSize; i++)
-        	addressHashSet[i] = 0;
-              	    	
-     	// debug
-    	//printBitMap();             
-    	//printInodes(); 
-    	
-    	// run the file system check functions
-    	badAddressInInode();
-    	addressUsedByInodeButMarkedFreeInBitmap();
-    	addressUsedMoreThanOnce();
-		rootDirectoryDoesNotExist();
+	// get inodes
+	inodes = malloc(sizeof(struct dinode*) * numInodes);
+	lseek(image, 2 * BSIZE, SEEK_SET); // inodes locaiton
+	for(i = 0; i < numInodes; i++) {
+		inodes[i] = malloc(sizeof(struct dinode));
+			read(image, inodes[i], sizeof(struct dinode));
+	}
+	
+	// get data bitmap
+	numInodeBlocks = 1 + (int) (numInodes * sizeof(struct dinode)) / BSIZE;
+	dataBitmapAddr = 2 + numInodeBlocks;
+	beginDataBlocksAddr = 3 + numInodeBlocks;     
+	lseek(image, BSIZE * (dataBitmapAddr), SEEK_SET); // data bitmap location
+	read(image, dataBitmap, BSIZE);
+	
+	// setup helpers
+	addressHashSet = malloc(sizeof(short) * imageSize);
+	for(i = 0; i < imageSize; i++)
+		addressHashSet[i] = 0;
+					
+	// debug
+	//printBitMap();             
+	//printInodes(); 
+	
+	// run the file system check functions
+	badAddressInInode();
+	addressUsedByInodeButMarkedFreeInBitmap();
+	addressUsedMoreThanOnce();
+	rootDirectoryDoesNotExist();
+	directoryNotProperlyFormatted(1, 0);
 
 	return 0;
 }
