@@ -1,7 +1,6 @@
 // TODO BY MONDAY, MAY 2
 
 -J: Each inode is either unallocated or one of the valid types (T_FILE, T_DIR, T_DEV). ERROR: bad inode.
--J: Root directory exists, and it is inode number 1. ERROR MESSAGE: root directory does not exist.
 -C: Each directory contains . and .. entries. ERROR: directory not properly formatted.
 -J: Each .. entry in directory refers to the proper parent inode, and parent inode points back to it. ERROR: parent directory mismatch.
 -J: For blocks marked in-use in bitmap, actually is in-use in an inode or indirect block somewhere. ERROR: bitmap marks block in use but it is not in use.
