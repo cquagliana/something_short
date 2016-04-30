@@ -6,6 +6,10 @@
 #include <fcntl.h>
 #include "fs.h"
 
+#define T_DIR  1   // Directory
+#define T_FILE 2   // File
+#define T_DEV  3   // Special device
+
 int image;
 int numInodeBlocks;
 int imageSize;
@@ -165,6 +169,58 @@ void addressUsedMoreThanOnce() {
 	}
 }
 
+void rootDirectoryDoesNotExist() {
+	struct dinode* root = getInode(1);
+	if(root == NULL) {
+		printf("root directory does not exist\n");
+		exit(1);
+	}
+	
+	if(root->type != T_DIR) {
+		printf("root directory does not exist\n");
+		exit(1);
+	}
+	
+	int rootBlock = root->addrs[0];
+    struct dirent* dir = malloc(sizeof(struct dirent));
+
+    lseek(image, BSIZE * rootBlock, SEEK_SET);
+	
+	// check that . points to correct location
+	read(image, dir, sizeof(struct dirent));	
+	if( !(dir->name[0] == '.' && dir->name[1] == '\0') ) {
+		//printf("root directory does not exist\n");
+		//exit(1);
+		// maybe let the other test handle this?
+		return;
+	}
+	if(dir->inum != 1) {
+		printf("root directory does not exist\n");
+		exit(1);
+	}
+	
+	// check that .. points to correct location
+	read(image, dir, sizeof(struct dirent));	
+	if( !(dir->name[0] == '.' && dir->name[1] == '.' && dir->name[2] == '\0') ) {
+		//printf("root directory does not exist\n");
+		//exit(1);
+		// maybe let the other test handle this?
+		return;
+	}
+	if(dir->inum != 1) {
+		printf("root directory does not exist\n");
+		exit(1);
+	}
+		
+	free(dir);
+}
+
+void badInode(){
+	//struct dinode* root = getInode(1);
+}
+
+
+
 ///////////////////
 //// debugging //// 
 ///////////////////
@@ -255,6 +311,7 @@ int main(int argc, char *argv[]) {
     	badAddressInInode();
     	addressUsedByInodeButMarkedFreeInBitmap();
     	addressUsedMoreThanOnce();
+		rootDirectoryDoesNotExist();
 
 	return 0;
 }
