@@ -21,7 +21,8 @@ struct superblock* sb;
 struct dinode** inodes;
 char dataBitmap[BSIZE];
 char currBlock[BSIZE];
-int *addressHashSet;
+int *inodeHashMap;
+int *directoryHashMap;
 
 ///////////////////////
 //// misc. helpers //// 
@@ -143,11 +144,11 @@ void addressUsedMoreThanOnce() {
 			if(addr == 0)
 				continue;
 
-			if(addressHashSet[addr] != 0) {
+			if(inodeHashMap[addr] != 0) {
 				printf("address used more than once\n");
 				exit(1);
 			}
-			addressHashSet[addr] = 1;
+			inodeHashMap[addr] = 1;
         }  
         	
         // check indirect blocks
@@ -160,11 +161,11 @@ void addressUsedMoreThanOnce() {
 		int indirectEnd = indirectBase + numBlocksForFile - NDIRECT;
 		
 		for(k = indirectBase; k <= indirectEnd; k++) {
-			if(addressHashSet[k] != 0) {
+			if(inodeHashMap[k] != 0) {
 				printf("address used more than once\n");
 				exit(1);
 			}
-			addressHashSet[k] = 1;
+			inodeHashMap[k] = 1;
 		}
 	}
 }
@@ -250,18 +251,6 @@ void directoryNotProperlyFormatted(int inodeNumber, int level) {
 			if(subinode->type != T_DIR) {
 				continue;
 			}
-			
-			/*
-			int j;
-			for(j = 0; j < level; j++) 
-				printf("\t");		
-			printf("item %d name: ", dirInode);
-			
-			for(j = 0; j < DIRSIZ; j++) {
-				printf("%c",dir->name[j]);
-			}	
-			printf("\n");
-			*/
 				
 			if(dir->name[0] == '.' && dir->name[1] == '\0') {
 				foundDot = 1;
@@ -304,18 +293,6 @@ void directoryNotProperlyFormatted(int inodeNumber, int level) {
 				if(subinode->type != T_DIR) {
 					continue;
 				}
-				
-				/*
-				int j;
-				for(j = 0; j < level; j++) 
-					printf("\t");		
-				printf("item %d name: ", dirInode);
-				
-				for(j = 0; j < DIRSIZ; j++) {
-					printf("%c",dir->name[j]);
-				}	
-				printf("\n");
-				*/
 					
 				if(dir->name[0] == '.' && dir->name[1] == '\0') {
 					foundDot = 1;
@@ -339,6 +316,200 @@ void directoryNotProperlyFormatted(int inodeNumber, int level) {
 	free(dir);
 }
 
+void inodeReferredToInDirectoryButMarkedFree(int inodeNumber, int level) {
+	int blockIndex, i;
+	struct dinode* inode = getInode(inodeNumber);
+	struct dirent* dir = malloc(sizeof(struct dirent));		
+		
+	// direct blocks
+	for(i = 0; i < NDIRECT; i++) {
+		if(inode->addrs[i] == 0) {
+			continue;
+		}
+				
+		// get the block containing the data at index i  
+		blockIndex = inode->addrs[i];
+		int totalRead = 0;
+	
+		while(1) {
+			if(totalRead + sizeof(struct dirent) > BSIZE) {	
+				break;
+			}	
+		
+			lseek(image, BSIZE * blockIndex + totalRead, SEEK_SET);
+			read(image, dir, sizeof(struct dirent));	
+			totalRead += sizeof(struct dirent); 
+			
+			if(dir->name[0] == 0) {
+				break;
+			}
+			
+			int dirInode = dir->inum;
+			struct dinode* subinode = getInode(dirInode);
+			
+			if( !(subinode->type == T_DIR || subinode->type == T_FILE || subinode->type == T_DEV) ) {
+				printf("inode referred to in directory but marked free\n");	
+				exit(1);
+			}
+			
+			if(dir->name[0] == '.' && dir->name[1] == '\0') {
+				continue;
+			}
+			if(dir->name[0] == '.' && dir->name[1] == '.' && dir->name[2] == '\0') {
+				continue;
+			}			
+			
+			if(subinode->type == T_DIR) {
+				inodeReferredToInDirectoryButMarkedFree(dirInode, level + 1);
+			}
+		}
+	}
+	
+	// indirect blocks
+	blockIndex = inode->addrs[NDIRECT];
+	if(blockIndex != 0) {
+		int numBlocksForFile = (inode->size) / BSIZE;
+		int indirectBase = blockIndex;
+		int indirectEnd = indirectBase + numBlocksForFile - NDIRECT;
+		
+		for(blockIndex = indirectBase; blockIndex <= indirectEnd; blockIndex++) {
+			int totalRead = 0;
+	
+			while(1) {
+				if(totalRead + sizeof(struct dirent) > BSIZE) {	
+					break;
+				}	
+			
+				lseek(image, BSIZE * blockIndex + totalRead, SEEK_SET);
+				read(image, dir, sizeof(struct dirent));	
+				totalRead += sizeof(struct dirent); 
+				
+				if(dir->name[0] == 0) {
+					break;
+				}
+				
+				int dirInode = dir->inum;
+				struct dinode* subinode = getInode(dirInode);
+				
+				if( !(subinode->type == T_DIR || subinode->type == T_FILE || subinode->type == T_DEV) ) {
+					printf("inode referred to in directory but marked free\n");	
+					exit(1);					
+				}	
+				
+				if(dir->name[0] == '.' && dir->name[1] == '\0') {
+					continue;
+				}
+				if(dir->name[0] == '.' && dir->name[1] == '.' && dir->name[2] == '\0') {
+					continue;
+				}			
+				
+				if(subinode->type == T_DIR) {
+					inodeReferredToInDirectoryButMarkedFree(dirInode, level + 1);
+				}
+			}
+		}
+	}
+}
+
+void directoryAppearsMoreThanOnceInFileSystem(int inodeNumber, int level) {
+	int blockIndex, i;
+	struct dinode* inode = getInode(inodeNumber);
+	struct dirent* dir = malloc(sizeof(struct dirent));		
+		
+	// direct blocks
+	for(i = 0; i < NDIRECT; i++) {
+		if(inode->addrs[i] == 0) {
+			continue;
+		}
+				
+		// get the block containing the data at index i  
+		blockIndex = inode->addrs[i];
+		int totalRead = 0;
+	
+		while(1) {
+			if(totalRead + sizeof(struct dirent) > BSIZE) {	
+				break;
+			}	
+		
+			lseek(image, BSIZE * blockIndex + totalRead, SEEK_SET);
+			read(image, dir, sizeof(struct dirent));	
+			totalRead += sizeof(struct dirent); 
+			
+			if(dir->name[0] == 0) {
+				break;
+			}
+			
+			if(dir->name[0] == '.' && dir->name[1] == '\0') {
+				continue;
+			}
+			if(dir->name[0] == '.' && dir->name[1] == '.' && dir->name[2] == '\0') {
+				continue;
+			}
+			
+			int dirInode = dir->inum;
+			struct dinode* subinode = getInode(dirInode);
+			if(subinode->type != T_DIR) {
+				continue;
+			}
+			
+			if(directoryHashMap[dirInode] == 1) {
+				printf("directory appears more than once in file system\n");
+				exit(1);
+			}	
+			directoryHashMap[dirInode] = 1;
+			
+			directoryNotProperlyFormatted(dirInode, level + 1);
+		}
+	}
+	
+	// indirect blocks
+	blockIndex = inode->addrs[NDIRECT];
+	if(blockIndex != 0) {
+		int numBlocksForFile = (inode->size) / BSIZE;
+		int indirectBase = blockIndex;
+		int indirectEnd = indirectBase + numBlocksForFile - NDIRECT;
+		
+		for(blockIndex = indirectBase; blockIndex <= indirectEnd; blockIndex++) {
+			int totalRead = 0;
+	
+			while(1) {
+				if(totalRead + sizeof(struct dirent) > BSIZE) {	
+					break;
+				}	
+			
+				lseek(image, BSIZE * blockIndex + totalRead, SEEK_SET);
+				read(image, dir, sizeof(struct dirent));	
+				totalRead += sizeof(struct dirent); 
+				
+				if(dir->name[0] == 0) {
+					break;
+				}
+				
+				if(dir->name[0] == '.' && dir->name[1] == '\0') {
+					continue;
+				}
+				if(dir->name[0] == '.' && dir->name[1] == '.' && dir->name[2] == '\0') {
+					continue;
+				}
+				
+				int dirInode = dir->inum;
+				struct dinode* subinode = getInode(dirInode);
+				if(subinode->type != T_DIR) {
+					continue;
+				}
+				
+				if(directoryHashMap[dirInode] == 1) {
+					printf("directory appears more than once in file system\n");
+					exit(1);
+				}	
+				directoryHashMap[dirInode] = 1;
+				
+				directoryNotProperlyFormatted(dirInode, level + 1);
+			}
+		}
+	}
+}
+
 ///////////////////
 //// debugging //// 
 ///////////////////
@@ -346,7 +517,7 @@ void directoryNotProperlyFormatted(int inodeNumber, int level) {
 void printBitMap() {
 	int i;
 	for(i = 0; i < numDataBlocks; i++) {	
-       	        printf("bitmap index %d with entry %d\n", i, isAllocated(i));
+       	    printf("bitmap index %d with entry %d\n", i, isAllocated(i));
         }   
 }
 
@@ -417,20 +588,27 @@ int main(int argc, char *argv[]) {
 	read(image, dataBitmap, BSIZE);
 	
 	// setup helpers
-	addressHashSet = malloc(sizeof(short) * imageSize);
+	inodeHashMap = malloc(sizeof(short) * numInodes);
 	for(i = 0; i < imageSize; i++)
-		addressHashSet[i] = 0;
+		inodeHashMap[i] = 0;
+		
+	directoryHashMap = malloc(sizeof(short) * numInodes);
+	for(i = 0; i < imageSize; i++)
+		directoryHashMap[i] = 0;				
 					
 	// debug
 	//printBitMap();             
 	//printInodes(); 
 	
 	// run the file system check functions
+	// TODO put them in the/a correct order
 	badAddressInInode();
 	addressUsedByInodeButMarkedFreeInBitmap();
 	addressUsedMoreThanOnce();
 	rootDirectoryDoesNotExist();
 	directoryNotProperlyFormatted(1, 0);
+	inodeReferredToInDirectoryButMarkedFree(1, 0);
+	directoryAppearsMoreThanOnceInFileSystem(1, 0);
 
 	return 0;
 }

@@ -4,9 +4,7 @@
 -J: Each .. entry in directory refers to the proper parent inode, and parent inode points back to it. ERROR: parent directory mismatch.
 -J: For blocks marked in-use in bitmap, actually is in-use in an inode or indirect block somewhere. ERROR: bitmap marks block in use but it is not in use.
 -J: For inodes marked used in inode table, must be referred to in at least one directory. ERROR: inode marked use but not found in a directory.
--C: For inode numbers referred to in a valid directory, actually marked in use in inode table. ERROR: inode referred to in directory but marked free.
 -J: Reference counts for regular files match the number of times file is referred to in directories (i.e., hard links work correctly). ERROR: bad reference count for file.
--C: No extra links allowed for directories (each directory only appears in one other directory). ERROR: directory appears more than once in file system.
 
 // END TODO
 ////////////////////////////////////////////////////////////////////////////////
