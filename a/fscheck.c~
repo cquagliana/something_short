@@ -23,6 +23,8 @@ int *addressHashSet;
 //// misc. helpers //// 
 ///////////////////////
 
+// this accesses the bitmap entry for block "blockAddr" and returns the value,
+// which will be 0 or 1. 
 int isAllocated(int blockAddr) {
         int base = blockAddr % BPB;
         int bitSelect = 1 << (base % 8);
@@ -30,6 +32,7 @@ int isAllocated(int blockAddr) {
         return !(out == 0);   
 }
 
+// this gets the inode in slot i
 struct dinode* getInode(int i) {
 	if(i >= 0 && i < numInodes) {
 		return inodes[i];
