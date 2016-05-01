@@ -1,4 +1,4 @@
-all: fscheck.c hash.c
+all: fscheck.c
 	gcc -O -Wall -o fscheck fscheck.c
 	
 debug: 

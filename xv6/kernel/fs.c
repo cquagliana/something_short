@@ -364,6 +364,10 @@ itrunc(struct inode *ip)
   int i, j;
   struct buf *bp;
   uint *a;
+  
+  if(ip->type == T_SMALLFILE) {
+	  return;
+  }
 
   for(i = 0; i < NDIRECT; i++){
     if(ip->addrs[i]){
@@ -405,29 +409,50 @@ readi(struct inode *ip, char *dst, uint off, uint n)
 {
   uint tot, m;
   struct buf *bp;
+  int i;
 
   if(ip->type == T_DEV){
     if(ip->major < 0 || ip->major >= NDEV || !devsw[ip->major].read)
       return -1;
     return devsw[ip->major].read(ip, dst, n);
   }
+  
+  if(ip->type == T_SMALLFILE) {	  
+	  if(off > SMALLFILE_SIZE /*ip->size*/ || off + n < off) 		{
+          return -1;
+	  }
+	  
+	  if(off + n > SMALLFILE_SIZE) 
+          n = SMALLFILE_SIZE - off; 
 
-  if(off > ip->size || off + n < off)
-    return -1;
-  if(off + n > ip->size)
-    n = ip->size - off;
+	  for(i = off; i < off + n; i++) {
+		  int indexOffset = i % 4;
+	      int indexBase = i / 4;
+		  
+  		  uint temp = ip->addrs[indexBase];
+		  temp = temp >> (indexOffset * 8);
+		  temp = temp & 0xFF;	   
+		  dst[i - off] = temp;
+	  }	  
+  } else {
+	  if(off > ip->size || off + n < off)
+		return -1;
+	  if(off + n > ip->size)
+		n = ip->size - off;
 
-  for(tot=0; tot<n; tot+=m, off+=m, dst+=m){
-    uint sector_number = bmap(ip, off/BSIZE);
-    if(sector_number == 0){ //failed to find block
-      panic("readi: trying to read a block that was never allocated");
-    }
-    
-    bp = bread(ip->dev, sector_number);
-    m = min(n - tot, BSIZE - off%BSIZE);
-    memmove(dst, bp->data + off%BSIZE, m);
-    brelse(bp);
+	  for(tot=0; tot<n; tot+=m, off+=m, dst+=m){
+		uint sector_number = bmap(ip, off/BSIZE);
+		if(sector_number == 0){ //failed to find block
+		  panic("readi: trying to read a block that was never allocated");
+		}
+		
+		bp = bread(ip->dev, sector_number);
+		m = min(n - tot, BSIZE - off%BSIZE);
+		memmove(dst, bp->data + off%BSIZE, m);
+		brelse(bp);
+	  }
   }
+  
   return n;
 }
 
@@ -437,35 +462,58 @@ writei(struct inode *ip, char *src, uint off, uint n)
 {
   uint tot, m;
   struct buf *bp;
+  int i;
 
   if(ip->type == T_DEV){
     if(ip->major < 0 || ip->major >= NDEV || !devsw[ip->major].write)
       return -1;
     return devsw[ip->major].write(ip, src, n);
   }
+  
+  if(ip->type == T_SMALLFILE) {
+	  if(off > SMALLFILE_SIZE /*ip->size*/ || off + n < off) 
+          return -1;
+	  if(off + n > SMALLFILE_SIZE) 
+          n = SMALLFILE_SIZE - off; 
 
-  if(off > ip->size || off + n < off)
-    return -1;
-  if(off + n > MAXFILE*BSIZE)
-    n = MAXFILE*BSIZE - off;
+	  for(i = off; i < off + n; i++) {
+		  int indexOffset = i % 4;
+	      int indexBase = i / 4;
+		  
+		  uint filter = ~(0xFF << (indexOffset * 8));  
+		  uint temp = ip->addrs[indexBase];
+		  temp = (temp & filter);	   
+		  uint data = src[i - off];
+		  data = data << (indexOffset * 8);		
+		  temp = temp | data;	  
+		  ip->addrs[indexBase] = temp;
+	  }
+		  
+	  iupdate(ip);
+  } else {
+	  if(off > ip->size || off + n < off)
+		return -1;
+	  if(off + n > MAXFILE*BSIZE)
+		n = MAXFILE*BSIZE - off;
 
-  for(tot=0; tot<n; tot+=m, off+=m, src+=m){
-    uint sector_number = bmap(ip, off/BSIZE);
-    if(sector_number == 0){ //failed to find block
-      n = tot; //return number of bytes written so far
-      break;
-    }
-    
-    bp = bread(ip->dev, sector_number);
-    m = min(n - tot, BSIZE - off%BSIZE);
-    memmove(bp->data + off%BSIZE, src, m);
-    bwrite(bp);
-    brelse(bp);
-  }
+	  for(tot=0; tot<n; tot+=m, off+=m, src+=m){
+		uint sector_number = bmap(ip, off/BSIZE);
+		if(sector_number == 0){ //failed to find block
+		  n = tot; //return number of bytes written so far
+		  break;
+		}
+		
+		bp = bread(ip->dev, sector_number);
+		m = min(n - tot, BSIZE - off%BSIZE);
+		memmove(bp->data + off%BSIZE, src, m);
+		bwrite(bp);
+		brelse(bp);
+	  }
 
-  if(n > 0 && off > ip->size){
-    ip->size = off;
-    iupdate(ip);
+	  if(n > 0 && off > ip->size){
+		ip->size = off;
+		iupdate(ip);
+	  }
   }
   return n;
 }
