@@ -55,6 +55,180 @@ void aquireBlock(int addr) {
 //// file system checks //// 
 ////////////////////////////
 
+void inodeValid() {
+    int i;
+    struct dinode* inode;
+    for(i = 0; i < numInodes; i++) {	
+        inode = getInode(i);
+       
+        if (!(inode->type == 0)) {
+            if (!(inode->type == T_FILE || 
+                  inode->type == T_DIR ||
+                  inode->type == T_DEV)) {
+                printf("bad inode\n");
+                exit(1);                                
+            }
+        }
+    }
+}
+
+void dotdotCheckParent() {
+
+    int i;
+    struct dinode* inode;
+    for(i = 0; i < numInodes; i++) {	
+
+        inode = getInode(i);
+
+        if (inode->type == 1) {
+
+            uint j;
+            struct dirent* currDirent;
+            
+            for(j = 0; j < NDIRECT; j++) {
+                if (inode->addrs[j] != 0) {
+                    aquireBlock(inode->addrs[j]);
+                    uint k = inode->addrs[j];
+                    for (; k < (k + BSIZE); k += sizeof(struct dirent)) {
+                        currDirent = (struct dirent*) &k;                
+                        if (currDirent->inum != 0 && strcmp(currDirent->name, "..") == 0) {
+                            struct dinode* dotdotInode = getInode(currDirent->inum);
+                            if (dotdotInode == NULL || dotdotInode != inode) {
+                                printf("parent directory mismatch.\n");
+                                exit(1);
+                            }
+                        }                        
+                    }
+                }
+            }                                
+        }
+    }    
+}
+
+void inUseBlockCheck() {
+
+    int i;
+
+    for(i = beginDataBlocksAddr; i < BSIZE * numDataBlocks + 2 * BSIZE; i += BSIZE) {	
+        int found = 0;        
+        if (isAllocated(i)) {
+            
+            int j;           
+            for(j = 0; j < numInodes; j++) {
+                struct dinode* inode = getInode(j);
+                if (inode->type != 0) {
+                    int k;
+                    for (k = 0; k < NDIRECT + 1; k++) {
+                        if (inode->addrs[k] == (uint) i) {
+                            found = 1;
+                            break;
+                        }
+                    }
+                    if (found == 1)
+                        break;
+                }
+            }
+            if (found == 0) {
+                printf("bitmap marks block in use but it is not in use.\n");
+                exit(1);
+            }
+        }
+    }
+
+}
+
+void inodesMarkedUsed() {
+
+    int j;           
+    for(j = 0; j < numInodes; j++) {
+
+        struct dinode* inode = getInode(j);
+        if (inode->type != 0) {
+            int found = 0;
+            int i;
+            for(i = 0; i < numInodes; i++) {
+
+                struct dinode* inodeDir = getInode(i);
+                struct dirent* currDirent;
+                if (inodeDir->type == 1) {
+
+                    int y;
+                    for (y = 0; y < NDIRECT + 1; y++)  {
+
+                        uint k = inode->addrs[y];
+                        for (; k < (k + BSIZE); k += sizeof(struct dirent)) {
+                            currDirent = (struct dirent*) &k;                
+                            if (currDirent->inum != 0 && getInode(currDirent->inum) == inode) {
+                                found = 1;
+                                break;
+                            }                        
+                        }
+                        if (found == 1)
+                            break;
+                    }
+                }
+                if (found == 1) 
+                    break;
+            }
+            
+            if ( found == 0) {
+                printf("inode marked use but not found in a directory.\n");
+                exit(1);
+            }
+        }
+    }     
+}
+
+void rootDirectoryExists() {
+    struct dinode* inode = getInode(1);
+    if (inode == NULL || inode->type != T_DIR) {
+        printf("root directory does not exist.\n");
+        exit(1);
+    }
+}
+
+void correctNumRefCounts() {
+    int numRefs[numInodes];
+    int k = 0;
+    for (; k < numInodes; k++) {
+        numRefs[k] = 0;
+    }
+
+    int i;
+    for(i = 0; i < numInodes; i++) {
+
+        struct dinode* inode = getInode(i);
+        struct dirent* currDirent;
+        if (inode->type == 1) {
+            int y;
+            for (y = 0; y < NDIRECT; y++)  {
+
+                uint k = inode->addrs[y];
+                for (; k < (k + BSIZE); k += sizeof(struct dirent)) {
+                    currDirent = (struct dirent*) &k;                
+                    numRefs[currDirent->inum]++;
+                }
+
+            }
+        }
+
+    }    
+
+    for(i = 0; i < numInodes; i++) {
+
+        struct dinode* inode = getInode(i);
+
+        if (inode->type == 2) {
+            if (numRefs[i] != inode->nlink) {
+                printf("bad reference count for file.\n");
+                exit(1);
+            }
+        }
+    }    
+
+
+}
+
 void badAddressInInode() {
 	int i, j, addr;
 	struct dinode* inode;
