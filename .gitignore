@@ -5,6 +5,7 @@
 *.elf
 *.c~
 *.~
+xv6/runtests.log
 
 # Precompiled Headers
 *.gch
