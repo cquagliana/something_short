@@ -87,8 +87,10 @@ void dotdotCheckParent() {
             
             for(j = 0; j < NDIRECT; j++) {
                 if (inode->addrs[j] != 0) {
-                    aquireBlock(inode->addrs[j]);
+                    //aquireBlock(inode->addrs[j]);
                     uint k = inode->addrs[j];
+                    k *= BSIZE;
+                    
                     for (; k < (k + BSIZE); k += sizeof(struct dirent)) {
                         currDirent = (struct dirent*) &k;                
                         if (currDirent->inum != 0 && strcmp(currDirent->name, "..") == 0) {
@@ -107,11 +109,12 @@ void dotdotCheckParent() {
 
 void inUseBlockCheck() {
 
-    int i;
-
-    for(i = beginDataBlocksAddr; i < BSIZE * numDataBlocks + 2 * BSIZE; i += BSIZE) {	
+    int y;
+    for(y = beginDataBlocksAddr; y < numDataBlocks + beginDataBlocksAddr; y++) {	
+    //for(i = beginDataBlocksAddr; i < BSIZE * numDataBlocks + 2 * BSIZE; i += BSIZE) {	
+    
         int found = 0;        
-        if (isAllocated(i)) {
+        if (isAllocated(y)) {
             
             int j;           
             for(j = 0; j < numInodes; j++) {
@@ -119,7 +122,7 @@ void inUseBlockCheck() {
                 if (inode->type != 0) {
                     int k;
                     for (k = 0; k < NDIRECT + 1; k++) {
-                        if (inode->addrs[k] == (uint) i) {
+                        if (inode->addrs[k] == (uint) y) {
                             found = 1;
                             break;
                         }
@@ -156,6 +159,7 @@ void inodesMarkedUsed() {
                     for (y = 0; y < NDIRECT + 1; y++)  {
 
                         uint k = inode->addrs[y];
+                        k *= BSIZE;
                         for (; k < (k + BSIZE); k += sizeof(struct dirent)) {
                             currDirent = (struct dirent*) &k;                
                             if (currDirent->inum != 0 && getInode(currDirent->inum) == inode) {
@@ -204,6 +208,7 @@ void correctNumRefCounts() {
             for (y = 0; y < NDIRECT; y++)  {
 
                 uint k = inode->addrs[y];
+                k*=BSIZE;
                 for (; k < (k + BSIZE); k += sizeof(struct dirent)) {
                     currDirent = (struct dirent*) &k;                
                     numRefs[currDirent->inum]++;
@@ -736,6 +741,7 @@ int main(int argc, char *argv[]) {
 	image = open(argv[1], O_RDONLY);
 	if(image < 0) {
   		fprintf(stderr, "image not found\n");
+  		exit(1);
 	}
 	
 	// get superblock
@@ -783,6 +789,7 @@ int main(int argc, char *argv[]) {
 	directoryNotProperlyFormatted(1, 0);
 	inodeReferredToInDirectoryButMarkedFree(1, 0);
 	directoryAppearsMoreThanOnceInFileSystem(1, 0);
+	dotdotCheckParent();
 
 	return 0;
 }
