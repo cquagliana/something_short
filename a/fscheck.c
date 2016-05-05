@@ -55,7 +55,7 @@ void aquireBlock(int addr) {
 //// file system checks //// 
 ////////////////////////////
 
-void inodeValid() {
+void badInode() {
     int i;
     struct dinode* inode;
     for(i = 0; i < numInodes; i++) {	
@@ -72,16 +72,17 @@ void inodeValid() {
     }
 }
 
-void dotdotCheckParent() {
-
-    int i;
+void parentDirectoryMismatch() {
+    int i, m;
     struct dinode* inode;
-    for(i = 0; i < numInodes; i++) {	
+    struct dirent* dir = malloc(sizeof(struct dirent));		
+    
+    for(m = 0; m < numInodes; m++) {	
 
-        inode = getInode(i);
+        inode = getInode(m);
 
         if (inode->type == 1) {
-
+            /*
             uint j;
             struct dirent* currDirent;
             
@@ -102,12 +103,109 @@ void dotdotCheckParent() {
                         }                        
                     }
                 }
-            }                                
+            }  
+            */
+            
+            int parent = -1;
+            
+            for(i = 0; i < NDIRECT; i++) {
+		if(inode->addrs[i] == 0) {
+			continue;
+		}
+				
+		// get the block containing the data at index i  
+		int blockIndex = inode->addrs[i];
+		int totalRead = 0;
+	
+		while(1) {
+			if(totalRead + sizeof(struct dirent) > BSIZE) {	
+				break;
+			}	
+		
+			lseek(image, BSIZE * blockIndex + totalRead, SEEK_SET);
+			read(image, dir, sizeof(struct dirent));	
+			totalRead += sizeof(struct dirent); 
+			
+			if(dir->name[0] == 0) {
+				break;
+			}
+			
+			int dirInode = dir->inum;
+			struct dinode* subinode = getInode(dirInode);
+			if(subinode->type != T_DIR) {
+				continue;
+			}
+				
+			if(dir->name[0] == '.' && dir->name[1] == '.' && dir->name[2] == '\0') {
+				parent = dir->inum;
+				
+				if(parent == m && m != 1) {
+					printf("parent directory mismatch.\n");
+					exit(1);
+				}
+				
+
+				goto found;
+			}			
+		}
+	   }
+	   
+	   found:
+	   if(parent == -1) {
+	   	printf("parent directory mismatch.\n");
+           	exit(1);
+	   }
+	   
+	   inode = getInode(parent);
+	   if(inode->type != T_DIR) {
+	   	printf("parent directory mismatch.\n");
+           	exit(1);
+	   }   
+	   
+	   for(i = 0; i < NDIRECT; i++) {
+		if(inode->addrs[i] == 0) {
+			continue;
+		}
+				
+		// get the block containing the data at index i  
+		int blockIndex = inode->addrs[i];
+		int totalRead = 0;
+	
+		while(1) {
+			if(totalRead + sizeof(struct dirent) > BSIZE) {	
+				break;
+			}	
+		
+			lseek(image, BSIZE * blockIndex + totalRead, SEEK_SET);
+			read(image, dir, sizeof(struct dirent));	
+			totalRead += sizeof(struct dirent); 
+			
+			if(dir->name[0] == 0) {
+				break;
+			}
+			
+			int dirInode = dir->inum;
+			struct dinode* subinode = getInode(dirInode);
+			if(subinode->type != T_DIR) {
+				continue;
+			}
+			
+			if(dir->inum == m) {
+				goto found2;
+			}			
+		}
+	   }
+	   
+	   printf("parent directory mismatch.\n");
+           exit(1);
+	   
+	   found2:
+           parent++; // meaningless and does nothing                 
         }
     }    
 }
 
-void inUseBlockCheck() {
+void bitmapMarksBlockInUseButItIsNotInUse() {
 
     int y;
     for(y = beginDataBlocksAddr; y < numDataBlocks + beginDataBlocksAddr; y++) {	
@@ -140,7 +238,7 @@ void inUseBlockCheck() {
 
 }
 
-void inodesMarkedUsed() {
+void inodeMarkedUseButNotFoundInADirectory() {
 
     int j;           
     for(j = 0; j < numInodes; j++) {
@@ -191,7 +289,7 @@ void rootDirectoryExists() {
     }
 }
 
-void correctNumRefCounts() {
+void badReferenceCountForFile() {
     int numRefs[numInodes];
     int k = 0;
     for (; k < numInodes; k++) {
@@ -242,8 +340,9 @@ void badAddressInInode() {
 	       	inode = getInode(i);
 	
 		// check direct blocks
-		for(j = 0; i < NDIRECT; i++) {	
+		for(j = 0; j < NDIRECT; j++) {	
 			addr = inode->addrs[j];
+		
 			if(addr == 0)
 				continue;
 
@@ -281,7 +380,7 @@ void addressUsedByInodeButMarkedFreeInBitmap() {
 	       	inode = getInode(i);
 	
 		// check direct blocks
-		for(j = 0; i < NDIRECT; i++) {	
+		for(j = 0; j < NDIRECT; j++) {	
 			addr = inode->addrs[j];
 			if(addr == 0)
 				continue;
@@ -318,7 +417,7 @@ void addressUsedMoreThanOnce() {
 	       	inode = getInode(i);
 	
 		// check direct blocks
-		for(j = 0; i < NDIRECT; i++) {	
+		for(j = 0; j < NDIRECT; j++) {	
 			addr = inode->addrs[j];
 			if(addr == 0)
 				continue;
@@ -709,7 +808,7 @@ void printInodes() {
         	if( ((inode->size) % BSIZE) != 0)
         		sz++;
         	
-       	        printf("inode=%d size=%d blocks=%d | ", i, inode->size, sz);
+       	        printf("inode=%d size=%d blocks=%d type=%d | ", i, inode->size, sz, inode->type);
        	        
        	        int j;
        	        for(j = 0; j < NDIRECT; j++) {
@@ -726,10 +825,6 @@ void printInodes() {
        	        printf("\n\n");
         }   
 }
-
-/////////////////////
-//// end helpers ////
-/////////////////////
 
 int main(int argc, char *argv[]) {
 	int i;
@@ -775,21 +870,23 @@ int main(int argc, char *argv[]) {
 	directoryHashMap = malloc(sizeof(short) * numInodes);
 	for(i = 0; i < imageSize; i++)
 		directoryHashMap[i] = 0;				
-					
+	
 	// debug
 	//printBitMap();             
 	//printInodes(); 
-	
-	// run the file system check functions
-	// TODO put them in the/a correct order
-	badAddressInInode();
-	addressUsedByInodeButMarkedFreeInBitmap();
-	addressUsedMoreThanOnce();
-	rootDirectoryDoesNotExist();
-	directoryNotProperlyFormatted(1, 0);
-	inodeReferredToInDirectoryButMarkedFree(1, 0);
-	directoryAppearsMoreThanOnceInFileSystem(1, 0);
-	dotdotCheckParent();
+
+	badInode(); // Jon - checked
+	badAddressInInode(); // Connor - checked
+	rootDirectoryDoesNotExist(); // Connor - checked
+	directoryNotProperlyFormatted(1, 0); // Connor - checked
+	parentDirectoryMismatch(); // Jon
+	addressUsedByInodeButMarkedFreeInBitmap(); // Connor - checked
+	//bitmapMarksBlockInUseButItIsNotInUse(); // Jon
+	addressUsedMoreThanOnce(); // Connor - checked
+	//inodeMarkedUseButNotFoundInADirectory(); // Jon
+	inodeReferredToInDirectoryButMarkedFree(1, 0); // Connor - checked
+	//badReferenceCountForFile(); // Jon 
+	directoryAppearsMoreThanOnceInFileSystem(1, 0); // Connor 
 
 	return 0;
 }
