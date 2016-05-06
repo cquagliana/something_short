@@ -1,0 +1,21 @@
+ CS 537 p5 - Spring 2016
+ quaglian
+ gullvier
+ 
+ Linux:
+ -Read the xv6 book to inderstand filesystem structure
+ -Wrote functions to easily access the superblock, any inode, or any bit in the
+  bitmap
+ -One by one, filled out functions, one for each of the 12 tests
+ -One type of function looped over the inodes and performed checks, perhaps 
+  caching file reference counts or checking the bitmap
+ -The other type of funciton looped over the directories and checked for 
+  correct things
+  
+  xv6:
+  -Added user programs hello and asd for testing
+  -Added SMALLFILE cases to sys_open in sysfile.c
+  -Added SMALLFILE_SIZE to fs.h
+  -Added T_SMALLFILE to stat.h
+  -Added O_SMALLFILE to fcntl.h
+  
