@@ -419,11 +419,16 @@ readi(struct inode *ip, char *dst, uint off, uint n)
   
   if(ip->type == T_SMALLFILE) {	  
 	  if(off > SMALLFILE_SIZE /*ip->size*/ || off + n < off) 		{
-          return -1;
+          	return -1;
 	  }
 	  
-	  if(off + n > SMALLFILE_SIZE) 
-          n = SMALLFILE_SIZE - off; 
+	  if(off + n > SMALLFILE_SIZE) {
+          	n = SMALLFILE_SIZE - off;
+          } 
+          	
+          if(off + n > ip->size)  {
+          	n = ip->size - off;
+          }
 
 	  for(i = off; i < off + n; i++) {
 		  int indexOffset = i % 4;
@@ -472,23 +477,24 @@ writei(struct inode *ip, char *src, uint off, uint n)
   
   if(ip->type == T_SMALLFILE) {
 	  if(off > SMALLFILE_SIZE /*ip->size*/ || off + n < off) 
-          return -1;
+          	return -1;
 	  if(off + n > SMALLFILE_SIZE) 
           n = SMALLFILE_SIZE - off; 
 
 	  for(i = off; i < off + n; i++) {
-		  int indexOffset = i % 4;
-	      int indexBase = i / 4;
+		int indexOffset = i % 4;
+		int indexBase = i / 4;
+
+		uint filter = ~(0xFF << (indexOffset * 8));  
+		uint temp = ip->addrs[indexBase];
+		temp = (temp & filter);	   
+		uint data = src[i - off];
+		data = data << (indexOffset * 8);		
+		temp = temp | data;	  
+		ip->addrs[indexBase] = temp;
+	  }		  
 		  
-		  uint filter = ~(0xFF << (indexOffset * 8));  
-		  uint temp = ip->addrs[indexBase];
-		  temp = (temp & filter);	   
-		  uint data = src[i - off];
-		  data = data << (indexOffset * 8);		
-		  temp = temp | data;	  
-		  ip->addrs[indexBase] = temp;
-	  }
-		  
+	  ip->size = off + n;	  
 	  iupdate(ip);
   } else {
 	  if(off > ip->size || off + n < off)
