@@ -66,7 +66,7 @@ void badInode() {
             if (!(inode->type == T_FILE || 
                   inode->type == T_DIR ||
                   inode->type == T_DEV)) {
-                printf("bad inode\n");
+                fprintf(stderr,"ERROR: bad inode.\n");
                 exit(1);                                
             }
         }
@@ -117,7 +117,7 @@ void parentDirectoryMismatch() {
 				parent = dir->inum;
 				
 				if(parent == m && m != 1) {
-					printf("parent directory mismatch.\n");
+					fprintf(stderr,"ERROR: parent directory mismatch.\n");
 					exit(1);
 				}
 				
@@ -129,13 +129,13 @@ void parentDirectoryMismatch() {
 	   
 	   found:
 	   if(parent == -1) {
-	   	printf("parent directory mismatch.\n");
+	   	fprintf(stderr,"ERROR: parent directory mismatch.\n");
            	exit(1);
 	   }
 	   
 	   inode = getInode(parent);
 	   if(inode->type != T_DIR) {
-	   	printf("parent directory mismatch.\n");
+	   	fprintf(stderr,"ERROR: parent directory mismatch.\n");
            	exit(1);
 	   }   
 	   
@@ -173,7 +173,7 @@ void parentDirectoryMismatch() {
 		}
 	   }
 	   
-	   printf("parent directory mismatch.\n");
+	   fprintf(stderr,"ERROR: parent directory mismatch.\n");
            exit(1);
 	   
 	   found2:
@@ -225,7 +225,7 @@ void bitmapMarksBlockInUseButItIsNotInUse() {
             
             wasfound:
             if (found == 0) {
-                printf("bitmap marks block in use but it is not in use.\n");
+                fprintf(stderr,"ERROR: bitmap marks block in use but it is not in use.\n");
                 exit(1);
             }
         }
@@ -310,7 +310,7 @@ void inodeMarkedUseButNotFoundInADirectory(int inodeNumber, int level) {
 		if(inodeHashMap2[i] == 1) {
 			continue;
 		}
-	        printf("inode marked use but not found in a directory\n");
+	        fprintf(stderr,"ERROR: inode marked use but not found in a directory.\n");
                 exit(1);
 	}
 }
@@ -318,7 +318,7 @@ void inodeMarkedUseButNotFoundInADirectory(int inodeNumber, int level) {
 void rootDirectoryExists() {
     struct dinode* inode = getInode(1);
     if (inode == NULL || inode->type != T_DIR) {
-        printf("root directory does not exist.\n");
+        fprintf(stderr,"ERROR: root directory does not exist.\n");
         exit(1);
     }
 }
@@ -409,7 +409,7 @@ void badReferenceCountForFile() {
 
 		if (inode->type == T_FILE) {
 		    if (numRefs[i] != inode->nlink) {
-			printf("bad reference count for file.\n");
+			fprintf(stderr,"ERROR: bad reference count for file.\n");
 			exit(1);
 		    }
 		}
@@ -431,7 +431,7 @@ void badAddressInInode() {
 				continue;
 
 			if(addr < beginDataBlocksAddr || addr >= imageSize) {
-				printf("bad address in inode.\n");
+				fprintf(stderr,"ERROR: bad address in inode.\n");
 				exit(1);
 			}
         }  
@@ -445,14 +445,28 @@ void badAddressInInode() {
 		int indirectBase = addr;
 		int indirectEnd = indirectBase + numBlocksForFile - NDIRECT;
 		
+		if(((inode->size) % BSIZE) != 0)
+			indirectEnd++;
+		
 		if(indirectBase < beginDataBlocksAddr || indirectBase >= imageSize) {
-			printf("bad address in inode.\n");
+			fprintf(stderr,"ERROR: bad address in inode.\n");
 			exit(1);
 		}	
 		if(indirectEnd < beginDataBlocksAddr || indirectEnd >= imageSize) {
-			printf("bad address in inode.\n");
+			fprintf(stderr,"ERROR: bad address in inode.\n");
 			exit(1);
 		}
+		
+		for(j = indirectBase; j <= indirectEnd; j++) {
+			if(!isAllocated(j)) {
+				//printf("derp %d", j);
+				//fprintf(stderr,"ERROR: bad address in inode.\n");
+				//exit(1);			
+			}
+			
+		}
+		
+		//printf("ADDR %d %d %d %d\n", indirectBase, indirectEnd, isAllocated(indirectBase), isAllocated(indirectEnd));
 	}
 }
 
@@ -470,7 +484,7 @@ void addressUsedByInodeButMarkedFreeInBitmap() {
 				continue;
 
 			if(!isAllocated(addr)) {
-				printf("address used by inode but marked free in bitmap.\n");
+				fprintf(stderr,"ERROR: address used by inode but marked free in bitmap.\n");
 				exit(1);
 			}
         }  
@@ -486,7 +500,7 @@ void addressUsedByInodeButMarkedFreeInBitmap() {
 		
 		for(k = indirectBase; k <= indirectEnd; k++) {
 			if(!isAllocated(k)) {
-				printf("address used by inode but marked free in bitmap.\n");
+				fprintf(stderr,"ERROR: address used by inode but marked free in bitmap.\n");
 				exit(1);
 			}
 		}
@@ -507,7 +521,7 @@ void addressUsedMoreThanOnce() {
 				continue;
 
 			if(inodeHashMap[addr] != 0) {
-				printf("address used more than once.\n");
+				fprintf(stderr,"ERROR: address used more than once.\n");
 				exit(1);
 			}
 			inodeHashMap[addr] = 1;
@@ -524,7 +538,7 @@ void addressUsedMoreThanOnce() {
 		
 		for(k = indirectBase; k <= indirectEnd; k++) {
 			if(inodeHashMap[k] != 0) {
-				printf("address used more than once.\n");
+				fprintf(stderr,"ERROR: address used more than once.\n");
 				exit(1);
 			}
 			inodeHashMap[k] = 1;
@@ -535,12 +549,12 @@ void addressUsedMoreThanOnce() {
 void rootDirectoryDoesNotExist() {
 	struct dinode* root = getInode(1);
 	if(root == NULL) {
-		printf("root directory does not exist.\n");
+		fprintf(stderr,"ERROR: root directory does not exist.\n");
 		exit(1);
 	}
 	
 	if(root->type != T_DIR) {
-		printf("root directory does not exist.\n");
+		fprintf(stderr,"ERROR: root directory does not exist.\n");
 		exit(1);
 	}
 	
@@ -552,26 +566,26 @@ void rootDirectoryDoesNotExist() {
 	// check that . points to correct location
 	read(image, dir, sizeof(struct dirent));	
 	if( !(dir->name[0] == '.' && dir->name[1] == '\0') ) {
-		//printf("root directory does not exist\n");
+		//fprintf(stderr,"ERROR: root directory does not exist\n");
 		//exit(1);
 		// maybe let the other test handle this?
 		return;
 	}
 	if(dir->inum != 1) {
-		printf("root directory does not exist.\n");
+		fprintf(stderr,"ERROR: root directory does not exist.\n");
 		exit(1);
 	}
 	
 	// check that .. points to correct location
 	read(image, dir, sizeof(struct dirent));	
 	if( !(dir->name[0] == '.' && dir->name[1] == '.' && dir->name[2] == '\0') ) {
-		//printf("root directory does not exist\n");
+		//fprintf(stderr,"ERROR: root directory does not exist\n");
 		//exit(1);
 		// maybe let the other test handle this?
 		return;
 	}
 	if(dir->inum != 1) {
-		printf("root directory does not exist.\n");
+		fprintf(stderr,"ERROR: root directory does not exist.\n");
 		exit(1);
 	}
 		
@@ -671,7 +685,7 @@ void directoryNotProperlyFormatted(int inodeNumber, int level) {
 	}
 	
 	if(!foundDot || !foundDotDot) {
-		printf("directory not properly formatted.\n");
+		fprintf(stderr,"ERROR: directory not properly formatted.\n");
 		exit(1);
 	}
 		
@@ -710,7 +724,7 @@ void inodeReferredToInDirectoryButMarkedFree(int inodeNumber, int level) {
 			struct dinode* subinode = getInode(dirInode);
 			
 			if( !(subinode->type == T_DIR || subinode->type == T_FILE || subinode->type == T_DEV) ) {
-				printf("inode referred to in directory but marked free.\n");	
+				fprintf(stderr,"ERROR: inode referred to in directory but marked free.\n");	
 				exit(1);
 			}
 			
@@ -756,7 +770,7 @@ void inodeReferredToInDirectoryButMarkedFree(int inodeNumber, int level) {
 				struct dinode* subinode = getInode(dirInode);
 				
 				if( !(subinode->type == T_DIR || subinode->type == T_FILE || subinode->type == T_DEV) ) {
-					printf("inode referred to in directory but marked free.\n");	
+					fprintf(stderr,"ERROR: inode referred to in directory but marked free.\n");	
 					exit(1);					
 				}	
 				
@@ -776,6 +790,7 @@ void inodeReferredToInDirectoryButMarkedFree(int inodeNumber, int level) {
 }
 
 void directoryAppearsMoreThanOnceInFileSystem(int inodeNumber, int level) {
+	/*
 	int blockIndex, i;
 	struct dinode* inode = getInode(inodeNumber);
 	struct dirent* dir = malloc(sizeof(struct dirent));		
@@ -817,7 +832,7 @@ void directoryAppearsMoreThanOnceInFileSystem(int inodeNumber, int level) {
 			}
 			
 			if(directoryHashMap[dirInode] == 1) {
-				printf("directory appears more than once in file system.\n");
+				fprintf(stderr,"ERROR: directory appears more than once in file system.\n");
 				exit(1);
 			}	
 			directoryHashMap[dirInode] = 1;
@@ -863,7 +878,7 @@ void directoryAppearsMoreThanOnceInFileSystem(int inodeNumber, int level) {
 				}
 				
 				if(directoryHashMap[dirInode] == 1) {
-					printf("directory appears more than once in file system.\n");
+					fprintf(stderr,"ERROR: directory appears more than once in file system.\n");
 					exit(1);
 				}	
 				directoryHashMap[dirInode] = 1;
@@ -872,12 +887,127 @@ void directoryAppearsMoreThanOnceInFileSystem(int inodeNumber, int level) {
 			}
 		}
 	}
+	*/
+	
+	int dirMap[numInodes];
+	int k, m, i, blockIndex;
+	struct dinode* inode;
+	struct dirent* dir = malloc(sizeof(struct dirent));			
+	
+	for (k = 0; k < numInodes; k++) {
+		dirMap[k] = 0;
+	}	
+
+	for(m = 0; m < numInodes; m++) {
+		inode = getInode(m);
+		if(inode->type != T_DIR) continue;
+		
+		// direct blocks
+		for(i = 0; i < NDIRECT; i++) {
+			if(inode->addrs[i] == 0) {
+				continue;
+			}
+				
+			// get the block containing the data at index i  
+			blockIndex = inode->addrs[i];
+			int totalRead = 0;
+	
+			while(1) {
+				if(totalRead + sizeof(struct dirent) > BSIZE) {	
+					break;
+				}	
+		
+				lseek(image, BSIZE * blockIndex + totalRead, SEEK_SET);
+				read(image, dir, sizeof(struct dirent));	
+				totalRead += sizeof(struct dirent); 
+			
+				if(dir->name[0] == 0) {
+					//break;
+				}
+			
+				int dirInode = dir->inum;
+				struct dinode* subinode = getInode(dirInode);
+				if(subinode->type == T_DIR) {
+					
+					if(dir->name[0] == '.' && dir->name[1] == '\0') {
+						if(dirInode == m) {	
+							continue;
+						}				
+					}
+					if(dir->name[0] == '.' && dir->name[1] == '.' && dir->name[2] == '\0') {
+						continue;
+					}			
+					
+					//printf("dir: %d\n", dirInode);
+					
+					if(dirMap[dirInode] == 1) {
+						fprintf(stderr,"ERROR: directory appears more than once in file system.\n");
+						exit(1);
+					}	
+					dirMap[dirInode] = 1;
+				}
+			}
+		}
+	
+		// indirect blocks
+		blockIndex = inode->addrs[NDIRECT];
+		if(blockIndex != 0) {
+			int numBlocksForFile = (inode->size) / BSIZE;
+			int indirectBase = blockIndex;
+			int indirectEnd = indirectBase + numBlocksForFile - NDIRECT;
+			if( ((inode->size) % BSIZE) != 0)
+				indirectEnd++;
+		
+			for(blockIndex = indirectBase; blockIndex <= indirectEnd; blockIndex++) {
+				int totalRead = 0;
+	
+				while(1) {
+					if(totalRead + sizeof(struct dirent) > BSIZE) {	
+						break;
+					}	
+			
+					lseek(image, BSIZE * blockIndex + totalRead, SEEK_SET);
+					read(image, dir, sizeof(struct dirent));	
+					totalRead += sizeof(struct dirent); 
+				
+					if(dir->name[0] == 0) {
+						//break;
+					}
+								
+					int dirInode = dir->inum;
+					struct dinode* subinode = getInode(dirInode);
+					if(subinode->type == T_DIR) {
+						
+						
+						if(dir->name[0] == '.' && dir->name[1] == '\0') {
+							if(dirInode == m) {	
+								continue;
+							}
+						}
+						if(dir->name[0] == '.' && dir->name[1] == '.' && dir->name[2] == '\0') {
+							continue;
+						}
+						
+						printf("dir: %d\n", dirInode);
+
+						
+						if(dirMap[dirInode] == 1) {
+							fprintf(stderr,"ERROR: directory appears more than once in file system.\n");
+							exit(1);
+						}	
+						dirMap[dirInode] = 1;
+					}
+				}
+			}
+		}
+	}
+	
 }
 
 void printBitMap() {
 	int i;
 	for(i = 0; i < numDataBlocks; i++) {	
-       	    printf("bitmap index %d with entry %d\n", i, isAllocated(i));
+       	    fprintf(stderr,"ERROR: bitmap index %d with entry %d\n", i, isAllocated(i));
         }   
 }
 
